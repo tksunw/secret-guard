@@ -15,4 +15,4 @@ Design rules:
 
 - Fail open on tooling errors (git missing, not a repo, read failure): the guard must never block unrelated work. Fail closed on a match.
 - A new content pattern must be specific enough that a hit is worth stopping a commit. Test it against the tracked files in `~/REPOS/*` for noise before adding it.
-- `.secret-guard-allow` belongs to Tim. Never weaken the rule that blocks Claude from writing it.
+- `.secret-guard-allow` belongs to Tim. Never weaken the rule that blocks Claude from writing it. The shell check (`WRITES_ALLOW`) runs per line and refuses write forms; it does not refuse reads or mentions. Version 0.1.0 refused any command that named the file unless it began with a read, which blocked `cd repo && cat ...` and heredocs that only mention the file. When you add a write form, add it to the test that lists them.

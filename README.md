@@ -23,7 +23,7 @@ Add a path glob to `.secret-guard-allow` at the repo root, one per line, `#` for
 tests/fixtures/*.key
 ```
 
-Only you edit this file. The mod refuses Claude's Edit and Write calls on it, and any Bash command that names it other than a read (`cat`, `head`, `grep` and similar).
+Only you edit this file. The mod refuses Claude's Edit and Write calls on it. It also refuses any shell line that would write to it, move it or delete it: redirects, `tee`, `sed -i`, `cp`/`mv`/`rm`/`touch`, `git checkout`/`restore`, the PowerShell `*-Content`/`*-Item` cmdlets, and Python or Node file writes. Reads and plain mentions pass, including `cd repo && cat .secret-guard-allow` and a heredoc that only names the file. The check guards against Claude editing the list by mistake. It is not proof against deliberate obfuscation.
 
 ## Limits
 

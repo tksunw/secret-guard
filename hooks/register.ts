@@ -30,7 +30,25 @@ const SECRET_LINE: [string, RegExp][] = [
 const PLACEHOLDER = /changeme|change-me|example|placeholder|your[_-]|redacted|x{6,}|\*{4,}|<[^>]*>|\.\.\.|lookup|getenv|environ|process\.env|\$env:|os\.environ/i
 
 const ALLOW_FILE = '.secret-guard-allow'
-const READONLY_SHELL = /^\s*(?:rtk\s+)?(?:cat|less|more|head|tail|grep|rg|bat|type|Get-Content)\b/
+// Shell forms that write, move or delete the allow list. Checked per line, so a heredoc that only
+// mentions the file (a note, a README) passes, and so does any read (`cd repo && cat ...`).
+// Guards against Claude editing the list, not against deliberate obfuscation.
+const AL = String.raw`\.secret-guard-allow\b`
+const WRITES_ALLOW: RegExp[] = [
+  new RegExp(String.raw`>{1,2}\|?\s*["']?[^\s"'<>|;&]*${AL}`), // redirect into it
+  new RegExp(String.raw`\btee\b[^|;&\n]*${AL}`),
+  new RegExp(String.raw`\b(?:sed|perl|ruby)\b[^|;&\n]*\s-[a-zA-Z]*i[^|;&\n]*${AL}`),
+  new RegExp(String.raw`\b(?:cp|mv|rm|ln|touch|truncate|install|dd|shred|unlink|chmod|chown)\b[^|;&\n]*${AL}`),
+  new RegExp(String.raw`\bgit\b[^|;&\n]*\b(?:checkout|restore|rm|mv|apply|stash)\b[^|;&\n]*${AL}`),
+  new RegExp(String.raw`\b(?:Set-Content|Add-Content|Clear-Content|Out-File|New-Item|Remove-Item|Copy-Item|Move-Item|Rename-Item)\b[^|;&\n]*${AL}`, 'i'),
+  new RegExp(String.raw`${AL}["'\x60]?\s*,\s*["'\x60]?[wax]`), // open('.secret-guard-allow', 'w')
+  new RegExp(String.raw`(?:write_text|write_bytes|writeFile|writeFileSync|appendFile|WriteAllText|AppendAllText)\b[^\n]*${AL}`),
+  new RegExp(String.raw`${AL}[^\n]*\.(?:write_text|write_bytes|unlink|rename|replace)\(`),
+]
+
+export function writesAllowFile(command: string): boolean {
+  return command.split('\n').some(line => line.includes(ALLOW_FILE) && WRITES_ALLOW.some(r => r.test(line)))
+}
 
 type Git = { dir: string; sub: string; args: string[] }
 type Finding = { file: string; line?: number; what: string; shown?: string }
@@ -41,7 +59,7 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Write' }, ($, e, next) => (isAllowFile(e.file_path) ? { deny: allowDeny($.plugin.name) } : next(e)))
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (e.command.includes(ALLOW_FILE) && !READONLY_SHELL.test(e.command)) return { deny: allowDeny($.plugin.name) }
+    if (writesAllowFile(e.command)) return { deny: allowDeny($.plugin.name) }
 
     const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? ''
     const calls = gitCalls(e.command, await $.session.cwd(), home)

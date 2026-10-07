@@ -86,6 +86,30 @@ test('Claude cannot write the allow list', async ($, on) => {
   expect(it.passed).toEqual(['cat .secret-guard-allow'])
 })
 
+test('reads and mentions of the allow list pass; every write form is refused', async ($, on) => {
+  const it = world(on)
+  const reads = [
+    'cd /r && cat .secret-guard-allow',
+    'git -C /r diff -- .secret-guard-allow | head',
+    "cat > 'note.md' <<'EOF'\nOnly Tim edits .secret-guard-allow at the repo root.\nEOF",
+    'git add .secret-guard-allow',
+  ]
+  const writes = [
+    'cd /r && echo x > .secret-guard-allow',
+    'printf "x\\n" >>/r/.secret-guard-allow',
+    'echo x | tee -a .secret-guard-allow',
+    "sed -i 's/a/b/' .secret-guard-allow",
+    'rm -f .secret-guard-allow',
+    'cp /tmp/x /r/.secret-guard-allow',
+    'git checkout -- .secret-guard-allow',
+    'Set-Content -Path .secret-guard-allow -Value x',
+    `python3 -c "open('.secret-guard-allow','w').write('**')"`,
+    `python3 -c "import pathlib; pathlib.Path('.secret-guard-allow').write_text('**')"`,
+  ]
+  for (const command of [...reads, ...writes]) await $.tool.call({ tool: 'Bash', command })
+  expect(it.passed).toEqual(reads)
+})
+
 test('helpers', () => {
   expect(gitCalls('cd ~/REPOS/x && git -C sub commit -am y; git push', '/w', '/home/t')).toEqual([
     { dir: '/home/t/REPOS/x/sub', sub: 'commit', args: ['-am', 'y'] },
