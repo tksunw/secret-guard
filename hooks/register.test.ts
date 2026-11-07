@@ -1,6 +1,6 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import { byContent, gitCalls, glob, isSecretName } from './register'
+import { byContent, gitCalls, glob, isPlaceholder, isSecretName } from './register'
 
 // A repo at /r. `git` answers by subcommand from `out`; files by path from `files`.
 function world(on: On, out: Record<string, string> = {}, files: Record<string, string> = {}) {
@@ -123,4 +123,56 @@ test('helpers', () => {
   expect(byContent('+++ b/x.tf\n@@ -0,0 +1 @@\n+password = lookup(j, "Pwd")')).toEqual([])
   expect(byContent('+++ b/x.tf\n@@ -0,0 +1 @@\n+password = "${var.pwd}"')).toEqual([])
   expect(byContent('+++ b/c.ini\n@@ -0,0 +1 @@\n+Server=x;User Id=a;Password=Hunter2Pass;').length).toBe(1)
+})
+
+// What Claude Code writes into .claude/settings.local.json on "don't ask again": the exact command,
+// with any inline credential. Each line is one allow rule.
+const RULE = (cmd: string) => `+++ b/.claude/settings.local.json\n@@ -0,0 +3 @@\n+      "Bash(${cmd})",`
+
+test('inline credentials in an allow rule are caught', () => {
+  const caught = [
+    'PGPASSWORD=Hunter2Secret9 psql -h db.example.com -U admin -d prod',
+    'DB_PASSWORD=supersecret123 npm start',
+    'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQ4Lm9Vk aws s3 ls',
+    'ANTHROPIC_API_KEY=sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123 python app.py',
+    'sshpass -p MyS3cretPass! ssh root@203.0.113.5',
+    'mysql -u root -pS3cretPw99 -h 10.0.0.5 app',
+    'mysql -u root --password=S3cretPw99 app',
+    'docker login -u tim -p MyRegistryPw1 ghcr.io',
+    'az login --service-principal -u 1111-2222 -p Abc~XyZ.secret123 --tenant t',
+    'curl -u admin:Sup3rSecret https://api.example.com',
+    'openssl pkcs12 -in x.pfx -passin pass:Hunter2Pass',
+    'npm config set //registry.npmjs.org/:_authToken npm_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+    'curl -H "PRIVATE-TOKEN: glpat-ABCDEFGHIJKLMNOPQRST" https://gitlab.com/api/v4/projects',
+  ]
+  for (const cmd of caught) expect(byContent(RULE(cmd)).length).toBe(1)
+})
+
+test('variables, prompts, ports and placeholders in an allow rule pass', () => {
+  const clean = [
+    'PGPASSWORD=$DB_PASS psql -h $DB_HOST',
+    'PGPASSWORD=${DB_PASS} psql',
+    'DB_PASSWORD=$(op read op://vault/db/password) npm start',
+    'mysql -u root -p mydatabase',
+    'psql -h localhost -p 5432 -U app',
+    'sshpass -p "$PASS" ssh host',
+    'docker login -u tim -p $GHCR_TOKEN ghcr.io',
+    'curl -w %{http_code} -u user:$TOKEN https://x',
+    'wget -P /tmp/downloads https://x/file',
+    'APP_PASSWORD=CHANGE_ME_APP_PASSWORD docker compose up',
+    'APP_PASSWORD=choose_a_strong_local_password',
+    'RENTCAST_API_KEY=test-key-123 ./smoke.sh',
+    'FILE__PASSWORD=/run/secrets/gui_password',
+    'xcrun notarytool submit --apple-id you@example.com --password app-specific-password',
+    'GITHUB_TOKEN=$(gh auth token) gh repo list',
+  ]
+  for (const cmd of clean) expect(byContent(RULE(cmd))).toEqual([])
+  expect(isPlaceholder('APP_PASSWORD=choose_a_strong_local_password')).toBe(true)
+  expect(isPlaceholder('APP_PASSWORD=x9Kq2mZp8Lw')).toBe(false)
+})
+
+test('.claude/settings.local.json is a secret file by name', () => {
+  expect(isSecretName('.claude/settings.local.json')).toBe(true)
+  expect(isSecretName('sub/.claude/settings.local.json')).toBe(true)
+  expect(isSecretName('.claude/settings.json')).toBe(false)
 })

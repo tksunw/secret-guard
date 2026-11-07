@@ -1,6 +1,6 @@
 {
   "name": "secret-guard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Blocks git commit and git push from Claude when the change carries a secret file or a credential-shaped line, and flags secret files that are not gitignored",
   "author": { "name": "Tim Kennedy" },
   "license": "MIT"

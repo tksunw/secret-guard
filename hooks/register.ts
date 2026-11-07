@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 // content, so their name is the only signal. Public certificates (.pem, .crt) are left to the content
 // scan, which catches the private key block when one is in them.
 const SECRET_NAME =
-  /(^|\/)(\.env(\.[^/]+)?|\.apikeys[^/]*|\.env\.[^/]+|[^/]+\.(key|pfx|p12|jks|keystore|kdbx|ppk|tfstate|tfstate\.backup)|id_(rsa|dsa|ecdsa|ed25519)|cwallet\.sso|ewallet\.p12|credentials(\.json)?|\.netrc|\.pgpass|\.git-credentials|terraform\.tfvars)$/i
+  /(^|\/)(\.env(\.[^/]+)?|\.apikeys[^/]*|\.env\.[^/]+|[^/]+\.(key|pfx|p12|jks|keystore|kdbx|ppk|tfstate|tfstate\.backup)|id_(rsa|dsa|ecdsa|ed25519)|cwallet\.sso|ewallet\.p12|credentials(\.json)?|\.netrc|\.pgpass|\.git-credentials|terraform\.tfvars|\.claude\/settings\.local\.json)$/i
 const TEMPLATE_NAME = /\.(example|sample|template|dist)$/i
 
 // Patterns read on the lines a commit or push adds. Each is specific enough that a hit is worth a stop.
@@ -21,13 +21,33 @@ const SECRET_LINE: [string, RegExp][] = [
   ['JWT', /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
   ['connection string password', /\b(?:Password|Pwd)=[^;'"\s]{6,}/i],
   ['URL credentials', /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:[^\s:/@]{6,}@/i],
+  ['npm token', /\bnpm_[A-Za-z0-9]{36}\b/],
+  ['GitLab token', /\bglpat-[A-Za-z0-9_-]{20,}\b/],
+  // FOO_PASSWORD=value, as an inline env var in a command or a line in a .env. The word test on
+  // 'assigned secret' cannot see these: PGPASSWORD and DB_PASSWORD have no boundary before PASSWORD.
+  ['env-var secret', /\b[A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_KEY)=(?![$<{(%"'`\/~-])[^\s"'`;&|)]{8,}/],
+  // Passwords given to a tool on its command line, as Claude Code records them in an allow rule.
+  ['password flag', /\b(?:sshpass|docker\s+login|az\s+login|sqlcmd|smbclient|l?ftp)\b[^|;&\n]*\s-[pP]\s+(?![$<{(%"'`\/~-])[^\s"'`;&|)]{6,}/],
+  ['password flag', /\b(?:mysql|mysqldump|mysqladmin|mariadb)\b[^|;&\n]*\s-p(?![\s$<{(%"'`\/~-])[^\s"'`;&|)]{6,}/],
+  ['password flag', /\s(?:--password|--passwd|--token|--secret|--api-key|--passphrase|-passin|-passout)[ =](?![$<{(%"'`\/~-])[^\s"'`;&|)]{6,}/i],
+  ['basic auth flag', /\b(?:curl|wget|http|https)\b[^|;&\n]*\s(?:-u|--user)[ =](?![$<{(%"'`])[^\s:]+:(?![$<{(%"'`])[^\s"'`;&|)]{6,}/],
   [
     'assigned secret',
     /\b(?:password|passwd|secret|api[_-]?key|apikey|access[_-]?key|client[_-]?secret|auth[_-]?token|private[_-]?key)\b["']?\s*[:=]\s*["']?(?![$<{(%]|\bnull\b|\btrue\b|\bfalse\b)[^\s"'`,;)]{8,}/i,
   ],
 ]
-// Values on an "assigned secret" hit that are placeholders, not secrets.
-const PLACEHOLDER = /changeme|change-me|example|placeholder|your[_-]|redacted|x{6,}|\*{4,}|<[^>]*>|\.\.\.|lookup|getenv|environ|process\.env|\$env:|os\.environ/i
+// Values on a value-shaped hit that are placeholders, not secrets.
+const PLACEHOLDER =
+  /change[-_ ]?me|example|placeholder|your[_-]|redacted|dummy|fake|x{6,}|\*{4,}|<[^>]*>|\.\.\.|lookup|getenv|environ|process\.env|\$env:|os\.environ|\btest[-_]?(?:key|token|secret|pass)/i
+// Three or more lowercase words joined by _ or - is prose ("choose_a_strong_password"), not a secret.
+const PROSE_VALUE = /^[a-z]+(?:[_-][a-z]+){2,}$/
+const CHECK_PLACEHOLDER = new Set(['assigned secret', 'env-var secret', 'password flag', 'basic auth flag'])
+
+export function isPlaceholder(hit: string): boolean {
+  // The value is the last word of the hit, after any =, : or space, less an attached mysql -p.
+  const value = (hit.split(/[=:\s]+/).pop() ?? '').replace(/^-p(?=\S)/, '')
+  return PLACEHOLDER.test(hit) || PROSE_VALUE.test(value)
+}
 
 const ALLOW_FILE = '.secret-guard-allow'
 // Shell forms that write, move or delete the allow list. Checked per line, so a heredoc that only
@@ -190,7 +210,7 @@ export function byContent(patch: string): Finding[] {
     for (const [what, pattern] of SECRET_LINE) {
       const hit = pattern.exec(added)
       if (hit === null) continue
-      if (what === 'assigned secret' && PLACEHOLDER.test(hit[0])) continue
+      if (CHECK_PLACEHOLDER.has(what) && isPlaceholder(hit[0])) continue
       found.push({ file, line, what, shown: mask(hit[0]) })
       break
     }

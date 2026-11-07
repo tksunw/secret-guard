@@ -10,9 +10,9 @@ What it checks:
 - **Push:** every commit on `HEAD` that no remote-tracking branch holds yet (`git log HEAD --not --remotes`), so a secret committed earlier and deleted later is still caught before it leaves the machine.
 - **Unignored secret files:** a commit that is otherwise clean raises a toast naming any untracked secret file the repo does not ignore.
 
-Secret files by name: `.env` and `.env.*` (not `.example`, `.sample`, `.template`, `.dist`), `.apikeys*`, `*.key`, `*.pfx`, `*.p12`, `*.jks`, `*.keystore`, `*.kdbx`, `*.ppk`, `*.tfstate`, `terraform.tfvars`, SSH private keys, Oracle wallets (`cwallet.sso`, `ewallet.p12`), `credentials`, `.netrc`, `.pgpass`, `.git-credentials`.
+Secret files by name: `.env` and `.env.*` (not `.example`, `.sample`, `.template`, `.dist`), `.claude/settings.local.json` (Claude Code's "don't ask again" rules, which hold the exact commands you approved, inline credentials included), `.apikeys*`, `*.key`, `*.pfx`, `*.p12`, `*.jks`, `*.keystore`, `*.kdbx`, `*.ppk`, `*.tfstate`, `terraform.tfvars`, SSH private keys, Oracle wallets (`cwallet.sso`, `ewallet.p12`), `credentials`, `.netrc`, `.pgpass`, `.git-credentials`.
 
-Secret lines by content: private key blocks, AWS access keys, GitHub, Anthropic, OpenAI and Slack tokens, Azure storage and shared access keys, SAS signatures, JWTs, `Password=` in connection strings, credentials in URLs, and `password|secret|api_key|client_secret|token = "<literal>"` assignments. Placeholders and lookups (`${var.x}`, `lookup(...)`, `os.environ`, `changeme`, `<...>`) are skipped.
+Secret lines by content: private key blocks, AWS access keys, GitHub, GitLab, npm, Anthropic, OpenAI and Slack tokens, Azure storage and shared access keys, SAS signatures, JWTs, `Password=` in connection strings, credentials in URLs, `password|secret|api_key|client_secret|token = "<literal>"` assignments, inline env vars such as `PGPASSWORD=<literal>` or `DB_PASSWORD=<literal>`, and passwords given on a command line (`sshpass -p`, `mysql -p<literal>`, `docker login -p`, `az login -p`, `--password`, `--token`, `-passin`, `curl -u user:pass`). Placeholders and lookups (`${var.x}`, `$(cmd)`, `lookup(...)`, `os.environ`, `changeme`, `CHANGE_ME`, `test-key`, `<...>`, and prose values like `choose_a_strong_password`) are skipped.
 
 ## False positives
 
@@ -31,7 +31,11 @@ It guards Claude's tool calls only. Commits you make in your own shell are not c
 
 ## Install
 
-Clone this repo and point Claude Code at it, either through the mods folder:
+```
+/plugin install secret-guard --marketplace tksunw/claude-plugins
+```
+
+Or clone this repo and point Claude Code at it, either through the mods folder:
 
 ```bash
 git clone <repo-url> ~/REPOS/secret-guard
